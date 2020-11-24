@@ -10,18 +10,18 @@ DEFAULT_CONFIGS = {
    # General notes:
    #
    # 1. Semantics of these configurations. (Character limits are to support
-   #    tidy code formatting.)
+   #    tidy code and message formatting.)
    #
    #    a. This is a dictionary of configurations, which themselves are
    #       dictionaries.
    #
    #    b. Key is an arbitrary tag; user-visible. There's no enforced
    #       character set but let's stick with [a-z0-9_] for now and limit to
-   #       at most 12 characters.
+   #       at most 10 characters.
    #
    #    c. A configuration has the following keys.
    #
-   #       name ... Human-readable name for the configuration. Max 60 chars.
+   #       name ... Human-readable name for the configuration. Max 46 chars.
    #
    #       match .. Tuple; first item is the name of a file and the second is
    #                a regular expression. If the regex matches any line in the
@@ -147,21 +147,21 @@ DEFAULT_CONFIGS = {
    # 1. CentOS seems to have only fakeroot, which is in EPEL, not the standard
    #    repos.
 
-   { "rhel7":
-     { "name": "CentOS/RHEL 7",
-       "match": ("/etc/redhat-release", r"release 7\."),
-       "first": [ ("command -v fakeroot > /dev/null",
-                   "yum install -y epel-release && yum install -y fakeroot") ],
-       "cmds", ["dnf", "rpm", "yum"],
-       "each": ["fakeroot"] },
+   "rhel7":
+   { "name": "CentOS/RHEL 7",
+     "match": ("/etc/redhat-release", r"release 7\."),
+     "first": [ ("command -v fakeroot > /dev/null",
+                 "yum install -y epel-release && yum install -y fakeroot") ],
+     "cmds": ["dnf", "rpm", "yum"],
+     "each": ["fakeroot"] },
 
-   { "rhel8":
-     { "name": "CentOS/RHEL 8",
-       "match":  ("/etc/redhat-release", r"release 8\."),
-       "first": [ ("command -v fakeroot > /dev/null",
-                   "dnf install -y epel-release && dnf install -y fakeroot") ],
-       "cmds", ["dnf", "rpm", "yum"],
-       "each": ["fakeroot"] },
+   "rhel8":
+   { "name": "CentOS/RHEL 8",
+     "match":  ("/etc/redhat-release", r"release 8\."),
+     "first": [ ("command -v fakeroot > /dev/null",
+                 "dnf install -y epel-release && dnf install -y fakeroot") ],
+     "cmds": ["dnf", "rpm", "yum"],
+     "each": ["fakeroot"] },
 
    # Debian notes:
    #
@@ -186,20 +186,51 @@ DEFAULT_CONFIGS = {
    #      | egrep '^(fakeroot|fakeroot-ng|pseudo)$'
 
    "debSB":
-     { "name": "Debian 9 (Stretch) or 10 (Buster)",
-       "match": ("/etc/debian_version", r"^(9|10)\."),
-       "first": [ ("""apt-config dump | fgrep -q 'APT::Sandbox::User "root"' \
-                      || ! fgrep -q _apt /etc/passwd""",
-                   """echo 'APT::Sandbox::User "root";' \
-                      > /etc/apt/apt.conf.d/no-sandbox"""),
-                  ("""command -v fakeroot > /dev/null""",
-                   # update b/c base image ships with no package indexes
-                   """apt-get update && apt-get install -y pseudo""") ],
-       "cmds": ["apt", "apt-get", "dpkg"],
-       "each": ["fakeroot"] } },
+   { "name": "Debian 9 (Stretch) or 10 (Buster)",
+     "match": ("/etc/debian_version", r"^(9|10)\."),
+     "first": [ ("""apt-config dump | fgrep -q 'APT::Sandbox::User "root"' \
+                    || ! fgrep -q _apt /etc/passwd""",
+                 """echo 'APT::Sandbox::User "root";' \
+                    > /etc/apt/apt.conf.d/no-sandbox"""),
+                ("command -v fakeroot > /dev/null",
+                 # update b/c base image ships with no package indexes
+                 "apt-get update && apt-get install -y pseudo") ],
+     "cmds": ["apt", "apt-get", "dpkg"],
+     "each": ["fakeroot"] },
 
 }
 
+
+## Functions ###
+
+def detect(image):
+   for (tag, cfg) in DEFAULT_CONFIG.items():
+      try:
+         return Fakeroot(image, tag, cfg)
+      except Config_Aint_Matched:
+         pass
+   return None
+
+
+## Classes ##
+
+class Config_Aint_Matching(Exception):
+   pass
+
+class Fakeroot():
+
+   def __init__(self, image_path, tag, cfg):
+      ch.DEBUG("workarounds: testing config: %s" % tag)
+      file_path = "%s/%s" % (image_path, cfg["match"][0])
+      if (not (    os.path.isfile(file_path)
+               and ch.grep_p(file_path, cfg["match"][1]))):
+          raise Config_Aint_Matched(tag)
+      self.tag = tag
+      self.name = cfg["name"]
+      self.first = cfg["first"]
+      self.cmds = cfg["cmds"]
+      self.each = cfg["each"]
+      # YOU ARE HERE
 
 ## Functions ##
 

@@ -22,6 +22,9 @@ cli = None
 # Environment object.
 env = None
 
+# Fakeroot configuration (initialized during FROM).
+fakeroot_config = None
+
 # Images that we are building. Each stage gets its own image. In this
 # dictionary, an image appears exactly once or twice. All images appear with
 # an int key counting stages up from zero. Images with a name (e.g., "FROM ...
@@ -65,6 +68,10 @@ def main(cli_):
    # CLI namespace. :P
    global cli
    cli = cli_
+
+   # Check argument validity.
+   if (cli.force and cli.no_force_detect):
+      ch.FATAL("--force and --no-force-detect are incompatible")
 
    # Infer input file if needed.
    if (cli.file is None):
@@ -527,9 +534,22 @@ class I_from_(Instruction):
          self.base_image.pull_to_unpacked(fixup=True)
       image.copy_unpacked(self.base_image)
       env.reset()
-      # Inject fakeroot preparatory stuff if needed.
-      if (not cli.no_fakeroot):
-         fakeroot.inject_first(image.unpack_path, env.env_build)
+      # Find fakeroot configuration, if any.
+      if (not cli.no_force_detect):
+         global fakeroot_config
+         fakeroot_config = fakeroot.Fakeroot.detect(image.unpack_path)
+         if (fakeroot_config is None):
+            if (cli.force):
+               ch.FATAL("can't find suitable config for --force")
+            else:
+               ch.INFO("--force not available (no suitable config found)")
+         else:
+            if (cli.force):
+               adj = "will use"
+            else:
+               adj = "available"
+            ch.INFO("% --force: %s: %s"
+                    % (adj, fakeroot_config.tag, fakeroot_config.name))
 
    def str_(self):
       alias = "AS %s" % self.alias if self.alias else ""
